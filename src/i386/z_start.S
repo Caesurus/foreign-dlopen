@@ -1,4 +1,3 @@
-#if !STDLIB
 	.text
 	.globl	z_start
 	.hidden	z_start
@@ -9,5 +8,3 @@ z_start:
 	push	%eax
 	call	z_entry
 	hlt
-#endif
-

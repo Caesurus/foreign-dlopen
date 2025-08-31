@@ -1,7 +1,6 @@
 # make ARCH=i386 SMALL=1 DEBUG=1
 
 ARCH ?= amd64
-STDLIB = 1
 SMALL = 0
 DEBUG = 0
 
@@ -12,12 +11,8 @@ ARCHS := $(ARCHS32) $(ARCHS64)
 CFLAGS_i386 = -m32
 
 CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
-CFLAGS += -DSTDLIB=$(STDLIB)
-ifeq "$(STDLIB)" "0"
-#LDFLAGS += -nostartfiles -nodefaultlibs -nostdlib
-LDFLAGS += -nostartfiles -e z_start
-endif
-LDFLAGS += -pie -Wl,-Bsymbolic,--no-undefined,--build-id=none
+LDFLAGS += -nostartfiles -nodefaultlibs -nostdlib -e z_start
+LDFLAGS += -pie -Wl,-Bsymbolic,--no-undefined,--build-id=none -static -Wl,-Ttext-segment=0x66660000
 TARGET := loader foreign_dlopen_demo
 
 ifeq "$(filter $(ARCH),$(ARCHS))" ""
@@ -44,7 +39,7 @@ endif
 
 ASFLAGS = $(CFLAGS)
 
-OBJS := loader.o z_err.o z_printf.o z_syscalls.o z_utils.o foreign_dlopen.o
+OBJS := loader.o z_err.o z_printf.o z_syscalls.o z_utils.o fdl_resolve.o
 OBJS += $(patsubst %.S,%.o, $(wildcard $(ARCH)/*.S))
 
 ifeq "$(SMALL)" "1"
@@ -55,17 +50,12 @@ endif
 
 .PHONY: clean all
 
-all: $(TARGET) fdlhelper
+all: $(TARGET)
 
 loader: main.o $(OBJS)
 
 foreign_dlopen_demo: foreign_dlopen_demo.o $(OBJS)
 
-# fdlhelper lives in its own Makefile because compiler options are
-# completely different.
-fdlhelper:
-	$(MAKE) -f Makefile.fdlhelper
-
 clean:
-	rm -rf *.o $(TARGET) fdlhelper */*.o
+	rm -rf *.o $(TARGET) */*.o
 

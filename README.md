@@ -1,5 +1,19 @@
 # foreign-dlopen
 
+Fork from [pfalcon/foreign-dlopen](https://github.com/pfalcon/foreign-dlopen).
+Please see [Details](#details) for how this fork deviates from the original.
+
+Some general notes:
+- The original project has a #define for being able to use STDLIB. This has
+been removed here. It's not needed, and therefore can be eliminated.
+- This PoC was created and tested on a Linux 6.x Kernel with GLIBC 2.40-3.
+The parsing of the maps "file" and the locating of the symbols will possibly
+differ on different systems with different libc implementations, porting to
+those systems is left as future work.
+- Limited testing has been done, this is a weekend project and I don't have
+time to pour into this, it's provided as-is. Contributions welcome.
+- If you find something that's broken, feel free to fix and issue a pull request.
+
 ## Intro
 
 Calling dlopen() function from statically-linked binaries is a well-known
@@ -15,7 +29,7 @@ you duplicate code in each).
 undermines the original idea of static linking (you could link your app
 against dynamic libc and save space).
 4. Alternatively, you could link entire libc into your static executable,
-and export dynamic symbols (`ld --export-dynamic`). That avoids carriying
+and export dynamic symbols (`ld --export-dynamic`). That avoids carrying
 around extra libc.so file, but again requires extra legwork. And it still
 undermines the original benefit of static linking, as your app will be
 the size of libc.so (+ your app's code).
@@ -37,9 +51,9 @@ call "FFI (Foreign Function Interface) model". It goes along the lines of:
 1. Suppose you have a perfect, closed world application. Statically linked
 of course.
 2. But you want to go out to ~~dirty~~ bustling outside world (in other
-words, let your application, or users of your appplication, to dlopen()
+words, let your application, or users of your application, to dlopen()
 outside shared libraries).
-3. There're absolutely no expectations or stipulations about which libc
+3. There are absolutely no expectations or stipulations about which libc
 is used by those shared libraries. In particular, there's no expectations
 that libc of your application and external shared lib are the same. Or
 that you know which libc is used by external lib at all. For example,
@@ -60,96 +74,64 @@ This cute project is a proof-of-concept solution for this usecase.
 
 ## Details
 
-Implementation idea #1: a (custom) ELF loader. Problem: trying to implement
-"full" ELF loader (recursively load dependent .so, etc.) is prolematic, e.g.
-because glibc (libc.so) is tightly coupled with dynamic loader aka interpreter
-(ld.so). If you just load libc.so, and its dependency ld.so, a lot of
-stuff in ld.so will remain uninitialized, then libc.so will call into ld.so,
-which will crash. To properly initialize ld.so, it must be "run", i.e.
-execution should go into its entry point (and not just ELF INIT func). But
-when started that way, ld.so loads an executable, which then terminates.
-
-Idea #2: Make ld.so load an executable which will jump back into our custom
+Make ld.so load an executable which will jump back into our custom
 loader. This way, both ld.so will be initialized, and we get back control.
-Coupled with setjmp/longjmp, this can be turned into a reusable library.
+
+This is where this fork deviates from the original project. The excellent
+original project `pfalcon/foreign-dlopen` uses a custom helper, coupled with
+`setjmp`/`longjmp`. The usage of having to pass the helper an address via argv
+and having the `setjmp`/`longjmp` works but ideally we don't want to have to
+create a helper per system that we're deploying to, since that requires
+building and linking against the target libc's ld. Ideally we'd like to
+use a "helper" already on the system, that we do not have control over.
+
+So how do we achieve this?
+
 Its structure is:
 
 1. Custom ELF loader, built against any libc or lack thereof. This should be
 simplified loader, without support for loading shared libs, etc. The only
 thing it needs to load is a "helper" target executable and its INTERP.
-2. It calls into INTERP, the call wrapped with `setjmp`. The corresponding
-`longjmp` is wrapped into a global func, whose address (in ascii) we pass as
-a command-line argument to the "helper" target binary.
+
+2. The ELF loader loads the relevant sections into memory, but before it calls
+into INTERP, we can hijack the ENTRY and overwrite it with our own. This allows
+us to run INTERP, and then regain execution control in our code.
+
 3. The "helper" binary should be linked against native libc of the target
-environment whose shared libs we want to load (e.g., glibc).
-4. Target binary is also linked agains target libc's libdl. The binary captures
-addresses of dlopen()/dlsym()/etc. funcs into an array, and performs function
-call into the address passed as a command-line arg, passing array as a
-function arg.
-5. That address is, as mentioned above, is a function which performs `longjmp`,
-after storing the passed `dlopen()`, etc. function addresses for future use.
-6. After longjmp, we're back to our application, which now has access to
-`dlopen()`, etc. of the target system.
+environment whose shared libs we want to load (e.g., glibc). But this binary
+can be any existing dynamically linked binary on the system, eg: /bin/sleep
+
+4. Target binary is now also linked against target libc's libdl, but our entry
+function is called and we regain execution control. Now the harder part... we
+will need to locate the dlopen/dlsym locations ourselves.
+
+5. Parse the `/proc/self/maps` file to determine what libc is used and its base
+address.
+
+6. With the base address, parse libc’s ELF headers in memory to locate the
+`.dynsym`, `.dynstr`, and hash tables (`.gnu.hash` / `.hash`).
+Using these, resolve symbol addresses for functions like `dlopen`, `dlsym`.
+
+7. From there, we can directly call `dlopen()` on shared libraries on the system,
+use `dlsym()` to resolve additional symbols (like `printf`), and interact with
+them as if it were dynamically linked, all while keeping the main binary
+statically self-contained. Note, the stack won't necessarily be 16 byte aligned
+so we will need to ensure it is before calling the functions in libc.
+
 
 ## Building and running
 
 1. `cd src`
-2. Build target helper executable: `make -f Makefile.fdlhelper`. As explained
-above, it should be built against target system from which you want to load
-shared libs dynamically using dlopen(). (If you build this on a typical Linux
-system, it will be built against glibc.)
-3. Build static, stdlib-less sample application: `make STDLIB=0`. (You must
-pass `STDLIB=0` for full effect. By default, the sample is built against
-stdlib, which is helpful during development/debugging.)
+2. Build static, stdlib-less sample application: `make`.
 4. Run the sample: `./foreign_dlopen_demo`. While it is static, it will
-dynamically load libc.so.6 and call printf() from it. (All this using
-`fdlhelper` executable built in a previous step.)
+dynamically load `libc.so.6` and call `printf()` from it.
 
 ## Credits
 
 "Foreign dlopen" idea and implementation is by Paul Sokolovsky. The
 implementation is based on the ELF loader by Mikhail Ilyin:
-https://github.com/MikhailProg/elf , the original README of that project
-follows.
+https://github.com/MikhailProg/elf.
 
+The original project this was forked from:
+https://github.com/pfalcon/foreign-dlopen
 ---
-
-# ELF loader
-
-A small elf loader. It can load static and dynamically linked ELF EXEC and DYN (pie) binaries. The loader is PIE program that doesn't depend on libc and calls kernel services directly (z_syscall.c).
-
-If the loader needs to load a dynamically linked ELF it places an interpreter (usually ld.so) and a requested binary into a memory and then calls the interpreter entry point.
-
-
-## Build
-
-Default build is for amd64:
-
-```
-$ make
-``` 
-
-Build for i386:
-
-```
-$ make ARCH=i386
-```
-
-Small build (exclude all messages and printf):
-
-```
-$ make SMALL=1
-```
-
-## Load binaries
-
-Load ls:
-```
-$ ./loader /bin/ls
-```
-
-Load galculator:
-```
-$ ./loader /usr/bin/galculator
-```
-

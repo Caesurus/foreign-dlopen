@@ -3,8 +3,6 @@
 #include "z_asm.h"
 #include "z_syscalls.h"
 
-#if !STDLIB
-
 static int errno;
 
 int *z_perrno(void)
@@ -38,12 +36,12 @@ ret z_##name(t1 a1, t2 a2, t3 a3) \
 	return (ret)SYSCALL(name, a1, a2, a3); \
 }
 
+DEF_SYSCALL1(void, exit, int, status)
 DEF_SYSCALL2(int, open, const char *, filename, int, flags)
 DEF_SYSCALL3(ssize_t, read, int, fd, void *, buf, size_t, count)
 DEF_SYSCALL3(ssize_t, write, int, fd, const void *, buf, size_t, count)
 DEF_SYSCALL1(int, close, int, fd)
 DEF_SYSCALL3(int, lseek, int, fd, off_t, off, int, whence)
-DEF_SYSCALL1(int, exit, int, status)
 DEF_SYSCALL2(int, munmap, void *, addr, size_t, length)
 DEF_SYSCALL3(int, mprotect, void *, addr, size_t, length, int, prot)
 
@@ -59,5 +57,3 @@ z_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 	return (void *)SYSCALL(mmap, addr, length, prot, flags, fd, offset);
 #endif
 }
-
-#endif /* !STDLIB */

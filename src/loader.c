@@ -3,15 +3,16 @@
 #include "z_utils.h"
 #include "z_elf.h"
 #include "elf_loader.h"
+#include "fdl_resolve.h"
 
-#define PAGE_SIZE	4096
-#define ALIGN		(PAGE_SIZE - 1)
-#define ROUND_PG(x)	(((x) + (ALIGN)) & ~(ALIGN))
-#define TRUNC_PG(x)	((x) & ~(ALIGN))
-#define PFLAGS(x)	((((x) & PF_R) ? PROT_READ : 0) | \
-			 (((x) & PF_W) ? PROT_WRITE : 0) | \
-			 (((x) & PF_X) ? PROT_EXEC : 0))
-#define LOAD_ERR	((unsigned long)-1)
+#define PAGE_SIZE 4096
+#define ALIGN (PAGE_SIZE - 1)
+#define ROUND_PG(x) (((x) + (ALIGN)) & ~(ALIGN))
+#define TRUNC_PG(x) ((x) & ~(ALIGN))
+#define PFLAGS(x) ((((x) & PF_R) ? PROT_READ : 0) |  \
+				   (((x) & PF_W) ? PROT_WRITE : 0) | \
+				   (((x) & PF_X) ? PROT_EXEC : 0))
+#define LOAD_ERR ((unsigned long)-1)
 
 /* Original sp (i.e. pointer to executable params) passed to entry, if any. */
 unsigned long *entry_sp;
@@ -26,14 +27,45 @@ static void z_fini(void)
 		x_fini();
 }
 
+// MUST ensure that stack is 16 byte aligned for calls to external functions
+// especially ones with variadic arguments
+__attribute__((force_align_arg_pointer)) static void fdl_entry(void)
+{
+	z_printf("Loader is in memory... Start parsing logic\n");
+	if (fdl_resolve_from_maps() == 0)
+	{
+#ifndef RTLD_NOW
+#define RTLD_NOW 0x0002
+#endif
+		void *(*my_dlopen)(const char *, int) = (void *(*)(const char *, int))fdl_dlopen;
+		void *(*my_dlsym)(void *, const char *) = (void *(*)(void *, const char *))fdl_dlsym;
+		int (*libc_printf)(const char *, ...) = 0;
+
+		z_printf("fdl: dlopen=%p dlsym=%p\n", my_dlopen, my_dlsym);
+
+		void *h = my_dlopen(NULL, RTLD_NOW);
+		z_printf("handle: %p\n", h);
+
+		libc_printf = (int (*)(const char *, ...))my_dlsym(h, "printf");
+		z_printf("libc_printf: %p\n", libc_printf);
+
+		if (libc_printf)
+			libc_printf("[libc printf] hello via foreign dlopen\n");
+		z_printf("Done\n");
+	}
+	z_exit(0);
+}
+
 static int check_ehdr(Elf_Ehdr *ehdr)
 {
 	unsigned char *e_ident = ehdr->e_ident;
 	return (e_ident[EI_MAG0] != ELFMAG0 || e_ident[EI_MAG1] != ELFMAG1 ||
-		e_ident[EI_MAG2] != ELFMAG2 || e_ident[EI_MAG3] != ELFMAG3 ||
-	    	e_ident[EI_CLASS] != ELFCLASS ||
-		e_ident[EI_VERSION] != EV_CURRENT ||
-		(ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN)) ? 0 : 1;
+			e_ident[EI_MAG2] != ELFMAG2 || e_ident[EI_MAG3] != ELFMAG3 ||
+			e_ident[EI_CLASS] != ELFCLASS ||
+			e_ident[EI_VERSION] != EV_CURRENT ||
+			(ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN))
+			   ? 0
+			   : 1;
 }
 
 static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
@@ -46,8 +78,9 @@ static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
 
 	minva = (unsigned long)-1;
 	maxva = 0;
-	
-	for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++) {
+
+	for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++)
+	{
 		if (iter->p_type != PT_LOAD)
 			continue;
 		if (iter->p_vaddr < minva)
@@ -59,7 +92,7 @@ static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
 	minva = TRUNC_PG(minva);
 	maxva = ROUND_PG(maxva);
 
-	/* For dynamic ELF let the kernel chose the address. */	
+	/* For dynamic ELF let the kernel chose the address. */
 	hint = dyn ? NULL : (void *)minva;
 	flags = dyn ? 0 : MAP_FIXED;
 	flags |= (MAP_PRIVATE | MAP_ANONYMOUS);
@@ -72,7 +105,8 @@ static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
 
 	flags = MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE;
 	/* Now map each segment separately in precalculated address. */
-	for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++) {
+	for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++)
+	{
 		unsigned long off, start;
 		if (iter->p_type != PT_LOAD)
 			continue;
@@ -87,7 +121,7 @@ static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
 		if (z_lseek(fd, iter->p_offset, SEEK_SET) < 0)
 			goto err;
 		if (z_read(fd, p + off, iter->p_filesz) !=
-				(ssize_t)iter->p_filesz)
+			(ssize_t)iter->p_filesz)
 			goto err;
 		z_mprotect(p, sz, PFLAGS(iter->p_flags));
 	}
@@ -98,10 +132,9 @@ err:
 	return LOAD_ERR;
 }
 
-#define Z_PROG		0
-#define Z_INTERP	1
+#define Z_PROG 0
+#define Z_INTERP 1
 
-#if !STDLIB
 int main(int argc, char *argv[]);
 
 void z_entry(unsigned long *sp, void (*fini)(void))
@@ -115,12 +148,12 @@ void z_entry(unsigned long *sp, void (*fini)(void))
 	argv = (char **)(sp + 1);
 	main(argc, argv);
 }
-#endif
 
 void init_exec_elf(char *argv[])
 {
 	/* We assume that argv comes from the original executable params. */
-	if (entry_sp == NULL) {
+	if (entry_sp == NULL)
+	{
 		entry_sp = (unsigned long *)argv - 1;
 	}
 }
@@ -141,13 +174,16 @@ void exec_elf(const char *file, int argc, char *argv[])
 		/* argc */
 		p++;
 		/* argv */
-		while (*p++ != 0);
+		while (*p++ != 0)
+			;
 
 		unsigned long *from = p;
 		/* env */
-		while (*p++ != 0);
+		while (*p++ != 0)
+			;
 		/* aux vector */
-		while (*p++ != 0) {
+		while (*p++ != 0)
+		{
 			p++;
 		}
 		p++;
@@ -169,7 +205,8 @@ void exec_elf(const char *file, int argc, char *argv[])
 
 	(void)env;
 
-	for (i = 0;; i++, ehdr++) {
+	for (i = 0;; i++, ehdr++)
+	{
 		/* Open file, read and than check ELF header.*/
 		if ((fd = z_open(file, O_RDONLY)) < 0)
 			z_errx(1, "can't open %s", file);
@@ -194,17 +231,19 @@ void exec_elf(const char *file, int argc, char *argv[])
 		/* The second round, we've loaded ELF interp. */
 		if (file == elf_interp)
 			break;
-		for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++) {
+		for (iter = phdr; iter < &phdr[ehdr->e_phnum]; iter++)
+		{
 			if (iter->p_type != PT_INTERP)
 				continue;
 			elf_interp = z_alloca(iter->p_filesz);
 			if (z_lseek(fd, iter->p_offset, SEEK_SET) < 0)
 				z_errx(1, "can't lseek interp segment");
 			if (z_read(fd, elf_interp, iter->p_filesz) !=
-					(ssize_t)iter->p_filesz)
+				(ssize_t)iter->p_filesz)
 				z_errx(1, "can't read interp segment");
 			if (elf_interp[iter->p_filesz - 1] != '\0')
 				z_errx(1, "bogus interp path");
+			z_printf("elf_interp: %s\n", elf_interp);
 			file = elf_interp;
 		}
 		/* Looks like the ELF is static -- leave the loop. */
@@ -214,24 +253,29 @@ void exec_elf(const char *file, int argc, char *argv[])
 
 	/* Reassign some vectors that are important for
 	 * the dynamic linker and for lib C. */
-#define AVSET(t, v, expr) case (t): (v)->a_un.a_val = (expr); break
-	while (av->a_type != AT_NULL) {
-		switch (av->a_type) {
-		AVSET(AT_PHDR, av, base[Z_PROG] + ehdrs[Z_PROG].e_phoff);
-		AVSET(AT_PHNUM, av, ehdrs[Z_PROG].e_phnum);
-		AVSET(AT_PHENT, av, ehdrs[Z_PROG].e_phentsize);
-		AVSET(AT_ENTRY, av, entry[Z_PROG]);
-		AVSET(AT_EXECFN, av, (unsigned long)argv[1]);
-		AVSET(AT_BASE, av, elf_interp ?
-				base[Z_INTERP] : av->a_un.a_val);
+#define AVSET(t, v, expr)         \
+	case (t):                     \
+		(v)->a_un.a_val = (expr); \
+		break
+	while (av->a_type != AT_NULL)
+	{
+		switch (av->a_type)
+		{
+			AVSET(AT_PHDR, av, base[Z_PROG] + ehdrs[Z_PROG].e_phoff);
+			AVSET(AT_PHNUM, av, ehdrs[Z_PROG].e_phnum);
+			AVSET(AT_PHENT, av, ehdrs[Z_PROG].e_phentsize);
+			// AVSET(AT_ENTRY, av, entry[Z_PROG]);
+			// We override the entrypoint with our own, thereby maintaining execution control
+			AVSET(AT_ENTRY, av, (unsigned long)fdl_entry);
+			AVSET(AT_EXECFN, av, (unsigned long)argv[1]);
+			AVSET(AT_BASE, av, elf_interp ? base[Z_INTERP] : av->a_un.a_val);
 		}
 		++av;
 	}
 #undef AVSET
 	++av;
-
-	z_trampo((void (*)(void))(elf_interp ?
-			entry[Z_INTERP] : entry[Z_PROG]), sp, z_fini);
+	z_printf("Calling trampo...file: %s, interp: %s\n", file, elf_interp);
+	z_trampo((void (*)(void))(elf_interp ? entry[Z_INTERP] : entry[Z_PROG]), sp, z_fini);
 	/* Should not reach. */
 	z_exit(0);
 }
