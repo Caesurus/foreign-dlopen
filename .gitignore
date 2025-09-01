@@ -1,1 +1,3 @@
 *.o
+.gdb_history
+foreign_dlopen_demo
