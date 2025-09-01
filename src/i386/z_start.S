@@ -8,3 +8,4 @@ z_start:
 	push	%eax
 	call	z_entry
 	hlt
+

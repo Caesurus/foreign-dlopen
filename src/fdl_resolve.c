@@ -12,6 +12,19 @@ static const char *soname;
 void *fdl_dlopen;
 void *fdl_dlsym;
 
+static inline uint32_t u32_mod(uint32_t a, uint32_t m) {
+	if (m == 0) return 0;
+	// shift-subtract reduction, no hardware/software div required
+    // used to avoid __aeabi_uidivmod on arm..
+    while (a >= m) {
+		uint32_t t = m;
+		/* grow t to the largest power-of-two multiple ≤ a */
+		while ((t << 1) > t && (t << 1) <= a) t <<= 1;
+		a -= t;
+	}
+	return a;
+}
+
 /* Minimal readers */
 static int read_all(int fd, char *buf, int sz) {
 	int off = 0, n;
@@ -234,7 +247,7 @@ static Elf_Sym *lookup_gnu(mod_t *m, const char *name) {
 	                        (1UL << ((h >> m->gnu_shift2) % (sizeof(unsigned long)*8)));
 	if ((m->gnu_bloom[bloom_idx] & bitmask) != bitmask) return NULL;
 
-	uint32_t idx = m->gnu_buckets[h % m->gnu_nbucket];
+	uint32_t idx = m->gnu_buckets[u32_mod(h, m->gnu_nbucket)];
 	if (!idx) return NULL;
 	for (;;) {
 		uint32_t hv = m->gnu_chain[idx - m->gnu_symoffset];
@@ -253,7 +266,7 @@ static Elf_Sym *lookup_gnu(mod_t *m, const char *name) {
 static Elf_Sym *lookup_sysv(mod_t *m, const char *name) {
 	if (!m->buckets) return NULL;
 	uint32_t h = sysv_hash(name);
-	for (uint32_t i = m->buckets[h % m->nbucket]; i != 0; i = m->chains[i]) {
+	for (uint32_t i = m->buckets[u32_mod(h, m->nbucket)]; i != 0; i = m->chains[i]) {
 		Elf_Sym *sym = &m->dynsym[i];
 		if (sym->st_name && !z_strcmp(m->dynstr + sym->st_name, name))
 			return sym;
@@ -273,7 +286,8 @@ static void *resolve_sym(mod_t *m, const char *name) {
 int fdl_resolve_from_maps(void) {
 	if (find_libc_base() < 0) return -1;
 
-	mod_t M = {0};
+	mod_t M;
+	z_memset(&M, 0, sizeof(M));
 	if (mod_init(&M, text_base) < 0) return -1;
 
 	/* glibc: prefer __libc_dlopen_mode; fallback to dlopen/dlsym */

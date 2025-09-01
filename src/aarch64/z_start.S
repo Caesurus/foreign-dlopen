@@ -4,8 +4,10 @@
 	.hidden	z_start
 	.type	z_start,@function
 z_start:
-	mov	%rsp,	%rdi
-	mov	%rdx,	%rsi
-	call	z_entry
-	hlt
+	mov	x29,	#0
+	mov	x30,	#0
+	mov	x1,	x0
+	mov	x0,	sp
+	bl	z_entry
+	wfi
 

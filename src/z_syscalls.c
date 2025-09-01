@@ -48,11 +48,12 @@ DEF_SYSCALL3(int, mprotect, void *, addr, size_t, length, int, prot)
 void *
 z_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
-#if defined(__i386__)
-	/* i386 has old_mmap and mmap2, old_map is a legacy single arg
-	 * function, use mmap2 but it needs offset in page units. */
-	offset = (unsigned long long)offset >> 12;
-	return (void *)SYSCALL(mmap2, addr, length, prot, flags, fd, offset);
+	/* i386 has map (old_mmap) and mmap2, old_map is a legacy single arg
+	 * function, use mmap2 but it needs offset in page units.
+	 * In same time mmap2 does not exist on x86-64.
+	 */
+#ifdef SYS_mmap2
+	return (void *)SYSCALL(mmap2, addr, length, prot, flags, fd, offset >> 12);
 #else
 	return (void *)SYSCALL(mmap, addr, length, prot, flags, fd, offset);
 #endif
