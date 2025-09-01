@@ -13,7 +13,7 @@ CFLAGS_i386 = -m32
 CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
 LDFLAGS += -nostartfiles -nodefaultlibs -nostdlib -e z_start
 LDFLAGS += -pie -Wl,-Bsymbolic,--no-undefined,--build-id=none -static -Wl,-Ttext-segment=0x66660000
-TARGET := loader foreign_dlopen_demo
+TARGET := foreign_dlopen_demo
 
 ifeq "$(filter $(ARCH),$(ARCHS))" ""
   $(error ARCH='$(ARCH)' is not supported)
@@ -51,8 +51,6 @@ endif
 .PHONY: clean all
 
 all: $(TARGET)
-
-loader: main.o $(OBJS)
 
 foreign_dlopen_demo: foreign_dlopen_demo.o $(OBJS)
 
