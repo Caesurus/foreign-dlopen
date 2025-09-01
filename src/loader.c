@@ -213,7 +213,7 @@ void exec_elf(const char *file, int argc, char *argv[])
 		if (z_read(fd, ehdr, sizeof(*ehdr)) != sizeof(*ehdr))
 			z_errx(1, "can't read ELF header %s", file);
 		if (!check_ehdr(ehdr))
-			z_errx(1, "bogus ELF header %s", file);
+			z_errx(1, "bogus or incompatible ELF header %s", file);
 
 		/* Read the program header. */
 		sz = ehdr->e_phnum * sizeof(Elf_Phdr);
