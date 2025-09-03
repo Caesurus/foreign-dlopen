@@ -7,6 +7,6 @@
 PRIVATE void z_start(void);
 PRIVATE void z_trampo(void (*entry)(void), unsigned long *sp, void (*fini)(void));
 PRIVATE long z_syscall(int n, ...);
-
+PRIVATE void z_fdl_entry(void);
 #endif /* Z_ASM_H */
 

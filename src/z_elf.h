@@ -19,5 +19,9 @@
 #  error "ELFCLASS is not defined"
 #endif
 
+#ifndef ELF_ST_TYPE
+#define ELF_ST_TYPE(i) ((i) & 0xF)
+#endif
+
 #endif /* Z_ELF_H */
 

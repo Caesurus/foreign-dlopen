@@ -19,6 +19,7 @@ unsigned long *entry_sp;
 
 /* External fini function that the caller can provide us. */
 static void (*x_fini)(void);
+static unsigned long g_interp_base = 0;
 
 static void z_fini(void)
 {
@@ -28,17 +29,17 @@ static void z_fini(void)
 }
 
 // MUST ensure that stack is 16 byte aligned for calls to external functions
-// especially ones with variadic arguments
-__attribute__((force_align_arg_pointer)) static void fdl_entry(void)
+// especially ones with variadic arguments. We do this via the z_fdlentry.S wrapper
+void fdl_entry_impl(void)
 {
 	z_printf("Loader is in memory... Start parsing logic\n");
-	if (fdl_resolve_from_maps() == 0)
+	if (fdl_resolve_from_maps(g_interp_base) == 0)
 	{
 #ifndef RTLD_NOW
 #define RTLD_NOW 0x0002
 #endif
-		void *(*my_dlopen)(const char *, int) = (void *(*)(const char *, int))fdl_dlopen;
-		void *(*my_dlsym)(void *, const char *) = (void *(*)(void *, const char *))fdl_dlsym;
+		void *(*my_dlopen)(const char *, int) = (void *(*)(const char *, int))fdl_dlopen_sym(NULL);
+		void *(*my_dlsym)(void *, const char *) = (void *(*)(void *, const char *))fdl_dlsym_sym(NULL);
 		int (*libc_printf)(const char *, ...) = 0;
 
 		z_printf("fdl: dlopen=%p dlsym=%p\n", my_dlopen, my_dlsym);
@@ -115,14 +116,20 @@ static unsigned long loadelf_anon(int fd, Elf_Ehdr *ehdr, Elf_Phdr *phdr)
 		start += TRUNC_PG(iter->p_vaddr);
 		sz = ROUND_PG(iter->p_memsz + off);
 
-		p = z_mmap((void *)start, sz, PROT_WRITE, flags, -1, 0);
+		p = z_mmap((void *)start, sz, PROT_READ | PROT_WRITE, flags, -1, 0);
 		if (p == (void *)-1)
+		{
 			goto err;
+		}
 		if (z_lseek(fd, iter->p_offset, SEEK_SET) < 0)
+		{
 			goto err;
+		}
 		if (z_read(fd, p + off, iter->p_filesz) !=
 			(ssize_t)iter->p_filesz)
+		{
 			goto err;
+		}
 		z_mprotect(p, sz, PFLAGS(iter->p_flags));
 	}
 
@@ -266,7 +273,7 @@ void exec_elf(const char *file, int argc, char *argv[])
 			AVSET(AT_PHENT, av, ehdrs[Z_PROG].e_phentsize);
 			// AVSET(AT_ENTRY, av, entry[Z_PROG]);
 			// We override the entrypoint with our own, thereby maintaining execution control
-			AVSET(AT_ENTRY, av, (unsigned long)fdl_entry);
+			AVSET(AT_ENTRY, av, (unsigned long)z_fdl_entry);
 			AVSET(AT_EXECFN, av, (unsigned long)argv[1]);
 			AVSET(AT_BASE, av, elf_interp ? base[Z_INTERP] : av->a_un.a_val);
 		}
@@ -274,6 +281,13 @@ void exec_elf(const char *file, int argc, char *argv[])
 	}
 #undef AVSET
 	++av;
+
+	if (elf_interp)
+	{
+		g_interp_base = base[Z_INTERP];
+	}
+	// z_printf("base: 0x%lx\n", interp_base);
+
 	z_printf("Calling trampo...file: %s, interp: %s\n", file, elf_interp);
 	z_trampo((void (*)(void))(elf_interp ? entry[Z_INTERP] : entry[Z_PROG]), sp, z_fini);
 	/* Should not reach. */
