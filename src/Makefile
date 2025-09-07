@@ -10,7 +10,7 @@ ARCHS := $(ARCHS32) $(ARCHS64)
 
 CFLAGS_i386 = -m32
 
-CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
+CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE -Wa,--noexecstack
 LDFLAGS += -nostartfiles -nodefaultlibs -nostdlib -e z_start
 LDFLAGS += -pie -Wl,-Bsymbolic,--no-undefined,--build-id=none -static -Wl,-Ttext-segment=0x66660000
 TARGET := foreign_dlopen_demo
