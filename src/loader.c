@@ -288,7 +288,7 @@ void exec_elf(const char *file, int argc, char *argv[])
 	}
 	// z_printf("base: 0x%lx\n", interp_base);
 
-	z_printf("Calling trampo...file: %s, interp: %s\n", file, elf_interp);
+	z_printf("Calling trampo...file: %s, interp: %s\n", file ? file : "(null)", elf_interp ? elf_interp : "(null)");
 	z_trampo((void (*)(void))(elf_interp ? entry[Z_INTERP] : entry[Z_PROG]), sp, z_fini);
 	/* Should not reach. */
 	z_exit(0);

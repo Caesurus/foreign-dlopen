@@ -1,5 +1,10 @@
 #include <stdlib.h>
 
+/* satisfy compiler-emitted calls under -O2/-Os with no libc */
+void *memset(void *s, int c, size_t n) __attribute__((alias("z_memset")));
+void *memcpy(void *d, const void *s, size_t n) __attribute__((alias("z_memcpy")));
+
+
 void *z_memset(void *s, int c, size_t n)
 {
 	unsigned char *p = s, *e = p + n;

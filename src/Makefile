@@ -33,7 +33,9 @@ ifeq "$(DEBUG)" "1"
 else
   CFLAGS += -fvisibility=hidden
   # Disable unwind info to make prog smaller.
-  CFLAGS += -Os -fno-asynchronous-unwind-tables -fno-unwind-tables
+  CFLAGS += -fno-asynchronous-unwind-tables -fno-unwind-tables
+  #CFLAGS += -Os #causes issues on arm z_printf
+  CFLAGS += -O3
   LDFLAGS += -s
 endif
 

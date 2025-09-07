@@ -126,6 +126,16 @@ so we will need to ensure it is before calling the functions in libc.
 4. Run the sample: `./foreign_dlopen_demo`. While it is static, it will
 dynamically load `libc.so.6` and call `printf()` from it.
 
+### Armv7
+
+1. `cd src`
+2. Use crosscompile toolchain of your choice. Here is a simple one you can use.
+```bash
+docker run --rm dockcross/linux-armv7l-musl:latest > ./dockcross && chmod +x ./dockcross
+sudo ./dockcross make clean all
+```
+
+
 ## Credits
 
 "Foreign dlopen" idea and implementation is by Paul Sokolovsky. The
